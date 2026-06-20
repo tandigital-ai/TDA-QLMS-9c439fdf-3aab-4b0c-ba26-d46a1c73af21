@@ -1619,8 +1619,8 @@
         <div class="pt-title">PHIẾU THU</div>
         <div class="pt-date"><i>Ngày ${ngay} tháng ${thang} năm ${nam}</i></div>
         <div class="pt-lines">
-          <div><b>Họ và tên người nộp tiền:</b> ${esc(ncc.ten_ncc || po.id_ncc)} …………………………………</div>
-          <div><b>Địa chỉ:</b> ${esc(ncc.dia_chi || '………………………………………………………')}</div>
+          <div><b>Họ và tên người nộp tiền:</b>………………………………………………………………………………………………</div>
+          <div><b>Địa chỉ:</b>……………………………………………………………………………………………………………………</div>
           <div><b>Lý do thu:</b> Thanh toán tiền mua hàng theo đơn ${esc(po.ma_don_hang)}</div>
           <div><b>Số tiền:</b> <b>${fmt(tongTien)}</b></div>
           <div><b>Viết bằng chữ:</b> <i>${esc(docTienBangChu(tongTien))}</i></div>
