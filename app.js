@@ -332,11 +332,12 @@
       rows.push({ k, ct: ctMap[k.id_cong_trinh], spent, poCount: dhs.length });
     }
 
+    const khRows = pageSlice('kehoach', rows);
     view().innerHTML = card(`
       <table class="tbl">
         <thead><tr><th>Tháng</th><th>Công trình</th><th>Ngân sách</th><th>Đã phân bổ</th>
           <th>Sử dụng</th><th>Số PO</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
-        <tbody>${rows.map(({ k, ct, spent, poCount }) => {
+        <tbody>${khRows.map(({ k, ct, spent, poCount }) => {
           const pct = k.tong_du_tru ? Math.min(100, spent / k.tong_du_tru * 100) : 0;
           const over = spent > k.tong_du_tru;
           return `<tr>
@@ -353,7 +354,8 @@
               <button class="ibtn ibtn-danger" data-del="${k.id_ke_hoach}" title="Xóa">🗑️</button>
             </td></tr>`;
         }).join('')}</tbody>
-      </table>`);
+      </table>
+      <div id="khPager"></div>`);
 
 
     $$('[data-pick]', view()).forEach(b => b.onclick = () => openPickItems(b.dataset.pick));
@@ -730,22 +732,38 @@
       <div class="filter-bar">
         <select id="dhFilter"><option value="">— Tất cả trạng thái —</option>
           ${allStatus.map(s => `<option>${s}</option>`).join('')}</select>
+        <select id="dhKy"><option value="">— Tất cả kỳ —</option>
+          ${[...new Set(dhs.map(d => { const m = /PO-(\d{4})(\d{2})-/.exec(d.ma_don_hang); return m ? `${m[1]}-${m[2]}` : (d.ngay_tao||'').slice(0,7); }).filter(Boolean))].sort().reverse().map(m => `<option>${m}</option>`).join('')}</select>
+        <label style="display:flex;align-items:center;gap:4px">Từ ngày<input id="dhFrom" type="date"></label>
+        <label style="display:flex;align-items:center;gap:4px">Đến ngày<input id="dhTo" type="date"></label>
         <input id="dhSearch" placeholder="🔍 Tìm mã đơn / NCC…">
+        <button class="btn btn-light" id="dhClear">↺ Xóa lọc</button>
       </div>
-      <div id="dhTableWrap"></div>`;
+      <div id="dhTableWrap"></div>
+      <div id="dhPager"></div>`;
 
+    const dhMonth = (d) => { const m = /PO-(\d{4})(\d{2})-/.exec(d.ma_don_hang); return m ? `${m[1]}-${m[2]}` : (d.ngay_tao||'').slice(0,7); };
     const draw = () => {
       const fs = $('#dhFilter').value, q = $('#dhSearch').value.trim().toLowerCase();
-      const rows = dhs.filter(d =>
-        (!fs || d.trang_thai === fs) &&
-        (!q || `${d.ma_don_hang} ${d.id_ncc}`.toLowerCase().includes(q))
-      ).sort((a, b) => (b.ngay_tao || '').localeCompare(a.ngay_tao || ''));
+      const ky = $('#dhKy').value, from = $('#dhFrom').value, to = $('#dhTo').value;
+      const rows = dhs.filter(d => {
+        if (fs && d.trang_thai !== fs) return false;
+        if (q && !(`${d.ma_don_hang} ${d.id_ncc}`.toLowerCase().includes(q))) return false;
+        if (ky && dhMonth(d) !== ky) return false;
+        const ngay = (d.ngay_tao || '').slice(0, 10);
+        if (from && ngay < from) return false;
+        if (to && ngay > to) return false;
+        return true;
+      }).sort((a, b) => (b.ngay_tao || '').localeCompare(a.ngay_tao || ''));
 
-      $('#dhTableWrap').innerHTML = card(rows.length ? `
+      renderPager('dhPager', 'donhang', rows.length, draw);
+      const pageRows = pageSlice('donhang', rows);
+
+      $('#dhTableWrap').innerHTML = card(pageRows.length ? `
         <table class="tbl"><thead><tr>
           <th>Mã đơn</th><th>Công trình</th><th>NCC</th><th>Giá trị</th>
           <th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead>
-        <tbody>${rows.map(d => {
+        <tbody>${pageRows.map(d => {
           const kh = khMap[d.id_ke_hoach], ct = kh ? ctMap[kh.id_cong_trinh] : null;
           return `<tr>
             <td><b>${esc(d.ma_don_hang)}</b></td>
@@ -789,8 +807,12 @@
 
       $$('[data-del]', view()).forEach(b => b.onclick = () => confirmDelPO(b.dataset.del));
     };
-    $('#dhFilter').onchange = draw;
-    $('#dhSearch').oninput = draw;
+    $('#dhFilter').onchange = () => { getPage('donhang').page = 1; draw(); };
+    $('#dhSearch').oninput = () => { getPage('donhang').page = 1; draw(); };
+    $('#dhKy').onchange = () => { getPage('donhang').page = 1; draw(); };
+    $('#dhFrom').onchange = () => { getPage('donhang').page = 1; draw(); };
+    $('#dhTo').onchange = () => { getPage('donhang').page = 1; draw(); };
+    $('#dhClear').onclick = () => { $('#dhFilter').value=''; $('#dhSearch').value=''; $('#dhKy').value=''; $('#dhFrom').value=''; $('#dhTo').value=''; getPage('donhang').page = 1; draw(); };
     draw();
   }
 
@@ -1849,34 +1871,76 @@
   /* ====================================================================
    *  MÀN HÌNH 5 — THANH TOÁN & CÔNG NỢ
    * ==================================================================== */
-  async function renderThanhToan() {
+    async function renderThanhToan() {
     const dhs = (await window.API.listDonHang())
       .filter(d => [C.PO_STATUS.DA_XUAT_HD, C.PO_STATUS.TT_MOT_PHAN, C.PO_STATUS.DA_THANH_TOAN, C.PO_STATUS.DA_GIAO].includes(d.trang_thai));
     if (!dhs.length) { view().innerHTML = emptyBox('Chưa có đơn nào ở giai đoạn thanh toán (cần ≥ "Đã giao hàng").'); return; }
 
-    const rows = [];
-    for (const d of dhs) { const cn = await window.API.congNoByDon(d.id_don_hang); rows.push({ d, cn }); }
-    const totalDebt = rows.reduce((a, r) => a + r.cn.remaining, 0);
+    // Nạp công nợ cho từng đơn (1 lần)
+    const all = [];
+    for (const d of dhs) { const cn = await window.API.congNoByDon(d.id_don_hang); all.push({ d, cn }); }
+
+    // Lấy kỳ (tháng) của đơn từ mã PO (PO-YYYYMM-...) để lọc theo kỳ
+    const ttMonth = (d) => {
+      const m = /PO-(\d{4})(\d{2})-/.exec(d.ma_don_hang);
+      return m ? `${m[1]}-${m[2]}` : (d.ngay_tao || '').slice(0, 7);
+    };
+    const months = [...new Set(all.map(r => ttMonth(r.d)).filter(Boolean))].sort().reverse();
 
     view().innerHTML = `
-      ${card(`<div class="mini-stat"><span>Tổng công nợ còn phải trả</span><strong class="txt-danger">${fmt(totalDebt)}</strong></div>`)}
-      ${card(`<table class="tbl"><thead><tr>
+      <div class="filter-bar">
+        <select id="ttKy"><option value="">— Tất cả kỳ —</option>
+          ${months.map(m => `<option>${m}</option>`).join('')}</select>
+        <label style="display:flex;align-items:center;gap:4px">Từ ngày<input id="ttFrom" type="date"></label>
+        <label style="display:flex;align-items:center;gap:4px">Đến ngày<input id="ttTo" type="date"></label>
+        <input id="ttSearch" placeholder="🔍 Tìm mã đơn / NCC…">
+        <button class="btn btn-light" id="ttClear">↺ Xóa lọc</button>
+      </div>
+      <div id="ttStat"></div>
+      <div id="ttTableWrap"></div>
+      <div id="ttPager"></div>`;
+
+    const draw = () => {
+      const ky = $('#ttKy').value;
+      const from = $('#ttFrom').value, to = $('#ttTo').value;
+      const q = $('#ttSearch').value.trim().toLowerCase();
+      const rows = all.filter(({ d }) => {
+        if (ky && ttMonth(d) !== ky) return false;
+        const ngay = (d.ngay_tao || '').slice(0, 10);
+        if (from && ngay < from) return false;
+        if (to && ngay > to) return false;
+        if (q && !(`${d.ma_don_hang} ${d.id_ncc}`.toLowerCase().includes(q))) return false;
+        return true;
+      });
+      const totalDebt = rows.reduce((a, r) => a + r.cn.remaining, 0);
+      $('#ttStat').innerHTML = card(`<div class="mini-stat"><span>Tổng công nợ còn phải trả (theo lọc)</span><strong class="txt-danger">${fmt(totalDebt)}</strong></div>`);
+
+      renderPager('ttPager', 'thanhtoan', rows.length, draw);
+      const pageRows = pageSlice('thanhtoan', rows);
+
+      $('#ttTableWrap').innerHTML = card(pageRows.length ? `<table class="tbl"><thead><tr>
         <th>Mã đơn</th><th>NCC</th><th>Giá trị</th><th>Đã trả</th><th>Còn lại</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
-        <tbody>${rows.map(({ d, cn }) => `<tr>
+        <tbody>${pageRows.map(({ d, cn }) => `<tr>
           <td><b>${esc(d.ma_don_hang)}</b></td><td>${esc(d.id_ncc)}</td>
           <td>${fmt(cn.gia_tri)}</td><td>${fmt(cn.paid)}</td>
           <td class="${cn.remaining > 0 ? 'txt-danger' : 'txt-ok'}">${fmt(cn.remaining)}</td>
           <td>${statusBadge(d.trang_thai)}</td>
-                    <td class="act"><button class="ibtn ibtn-primary" data-pay="${d.id_don_hang}" title="Ghi nhận thanh toán">💵</button>
+          <td class="act"><button class="ibtn ibtn-primary" data-pay="${d.id_don_hang}" title="Ghi nhận thanh toán">💵</button>
             <button class="ibtn" data-hist="${d.id_don_hang}" title="Xem / Sửa / Xóa giao dịch">📜</button></td>
-        </tr>`).join('')}</tbody></table>`)}`;
+        </tr>`).join('')}</tbody></table>` : emptyBox('Không có đơn phù hợp bộ lọc.'));
 
 
+      $$('[data-pay]', view()).forEach(b => b.onclick = () => payForm(b.dataset.pay));
 
-    $$('[data-pay]', view()).forEach(b => b.onclick = () => payForm(b.dataset.pay));
+      $$('[data-hist]', view()).forEach(b => b.onclick = () => payHistory(b.dataset.hist));
+    };
 
-
-    $$('[data-hist]', view()).forEach(b => b.onclick = () => payHistory(b.dataset.hist));
+    $('#ttKy').onchange = () => { getPage('thanhtoan').page = 1; draw(); };
+    $('#ttFrom').onchange = () => { getPage('thanhtoan').page = 1; draw(); };
+    $('#ttTo').onchange = () => { getPage('thanhtoan').page = 1; draw(); };
+    $('#ttSearch').oninput = () => { getPage('thanhtoan').page = 1; draw(); };
+    $('#ttClear').onclick = () => { $('#ttKy').value=''; $('#ttFrom').value=''; $('#ttTo').value=''; $('#ttSearch').value=''; getPage('thanhtoan').page = 1; draw(); };
+    draw();
   }
 
   async function payForm(id, id_tt) {
