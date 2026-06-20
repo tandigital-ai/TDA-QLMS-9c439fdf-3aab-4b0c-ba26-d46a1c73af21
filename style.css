@@ -258,9 +258,48 @@ textarea { min-height: 64px; resize: vertical; }
 .print-doc .print-sign > div{ text-align:center; padding-top:6px; }
 .print-sign { display: flex; justify-content: space-around; margin-top: 50px; text-align: center; font-weight: 600; }
 .print-sign > div::after { content: ""; }
+/* -------------------- MẪU PHIẾU THU -------------------- */
+.pt-doc { font-family: "Times New Roman", Times, serif; color:#000; font-size:14px; line-height:1.7; max-width:760px; margin:0 auto; }
+.pt-company { font-size:16px; font-weight:700; margin-top:6px; }
+.pt-addr { font-size:14px; margin-bottom:18px; }
+.pt-title { text-align:center; font-size:24px; font-weight:700; letter-spacing:1px; }
+.pt-date { text-align:center; font-size:14px; margin-bottom:18px; }
+.pt-lines > div { margin-bottom:6px; }
+.pt-sign { display:flex; justify-content:space-around; text-align:center; margin-top:60px; }
+.pt-sign > div { flex:1; font-size:14px; }
+.pt-sign > div small { font-style:italic; font-weight:400; }
+
+/* -------------------- MẪU 02-TT: PHIẾU CHI / ỦY NHIỆM CHI -------------------- */
+.pc-doc { font-size: 13px; color: #000; line-height: 1.6; font-family: "Times New Roman", Times, serif; max-width: 700px; margin: 0 auto; }
+.pc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.pc-unit { line-height: 1.9; }
+.pc-form { text-align: center; }
+.pc-form-no { font-size: 14px; }
+.pc-form-sub { font-style: italic; font-size: 12px; margin-top: 2px; }
+.pc-title { text-align: center; font-size: 22px; font-weight: 700; letter-spacing: 1px; margin: 6px 0 2px; }
+.pc-date { text-align: center; font-size: 13px; margin-bottom: 14px; }
+.pc-quyenso { width: 230px; margin-left: auto; line-height: 1.9; margin-bottom: 14px; }
+.pc-lines { line-height: 2.1; margin-bottom: 8px; }
+.pc-lines > div { margin-bottom: 2px; }
+.pc-byword { font-style: italic; margin-left: 6px; }
+.pc-date2 { text-align: right; margin: 30px 40px 8px 0; }
+.pc-sign { display: flex; justify-content: space-between; text-align: center; margin-top: 6px; gap: 8px; }
+.pc-sign > div { flex: 1; font-size: 13px; }
+.pc-sign > div b { font-size: 13px; }
+.pc-sign > div small { font-style: italic; font-weight: 400; }
+.pc-footnote { margin-top: 70px; font-size: 13px; }
 .ncc-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ncc-head .act { display: flex; gap: 4px; }
 input[type="range"] { padding: 0; }
+/* -------------------- PHÂN TRANG (PAGER) -------------------- */
+.pager { display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:14px; }
+.pager button { border:1px solid var(--border); background:#fff; color:var(--text); border-radius:7px; min-width:34px; height:34px; padding:0 10px; cursor:pointer; font-size:13px; font-weight:600; }
+.pager button:hover:not(:disabled) { background:var(--gray-bg); }
+.pager button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.pager button:disabled { opacity:.45; cursor:not-allowed; }
+.pager .pager-info { color:var(--muted); font-size:12.5px; margin:0 6px; }
+.pager select { width:auto; padding:5px 8px; font-size:13px; }
+@media print { .pager { display:none !important; } }
 
 .chk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;max-height:160px;overflow:auto;border:1px solid var(--bd,#e2e8f0);border-radius:8px;padding:8px;margin-top:4px}
 .chk-pill{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer;padding:2px 4px;border-radius:6px}

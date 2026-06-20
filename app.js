@@ -108,6 +108,63 @@
   }
   function emptyBox(msg) { return `<div class="empty">${esc(msg)}</div>`; }
   function card(html, cls = '') { return `<div class="card ${cls}">${html}</div>`; }
+    /* -------------------- PHÂN TRANG DÙNG CHUNG -------------------- */
+  // state phân trang theo từng "khóa" (mỗi bảng 1 khóa riêng)
+  const PAGER = {};
+  function getPage(key) { return PAGER[key] || (PAGER[key] = { page: 1, size: 50 }); }
+  // Cắt mảng theo trang hiện tại
+  function pageSlice(key, arr) {
+    const st = getPage(key);
+    const totalPages = Math.max(1, Math.ceil(arr.length / st.size));
+    if (st.page > totalPages) st.page = totalPages;
+    const start = (st.page - 1) * st.size;
+    return arr.slice(start, start + st.size);
+  }
+  // Vẽ HTML thanh phân trang. onChange() sẽ được gọi lại khi đổi trang/kích cỡ.
+  function renderPager(containerId, key, totalItems, onChange) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    const st = getPage(key);
+    const totalPages = Math.max(1, Math.ceil(totalItems / st.size));
+    if (st.page > totalPages) st.page = totalPages;
+    const from = totalItems === 0 ? 0 : (st.page - 1) * st.size + 1;
+    const to = Math.min(totalItems, st.page * st.size);
+
+    // sinh các số trang gọn (1 … x-1 x x+1 … n)
+    const nums = [];
+    const push = (n) => nums.push(n);
+    if (totalPages <= 7) { for (let i = 1; i <= totalPages; i++) push(i); }
+    else {
+      push(1);
+      if (st.page > 3) push('…');
+      for (let i = Math.max(2, st.page - 1); i <= Math.min(totalPages - 1, st.page + 1); i++) push(i);
+      if (st.page < totalPages - 2) push('…');
+      push(totalPages);
+    }
+
+    box.innerHTML = `
+      <div class="pager">
+        <button data-pg="prev" ${st.page <= 1 ? 'disabled' : ''}>‹ Trước</button>
+        ${nums.map(n => n === '…'
+          ? `<span class="pager-info">…</span>`
+          : `<button data-pg="${n}" class="${n === st.page ? 'active' : ''}">${n}</button>`).join('')}
+        <button data-pg="next" ${st.page >= totalPages ? 'disabled' : ''}>Sau ›</button>
+        <span class="pager-info">${from}–${to} / ${totalItems}</span>
+        <select data-pgsize>
+          ${[25, 50, 100, 200, 500].map(s => `<option value="${s}" ${s === st.size ? 'selected' : ''}>${s}/trang</option>`).join('')}
+        </select>
+      </div>`;
+
+    box.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => {
+      const v = b.dataset.pg;
+      if (v === 'prev') st.page = Math.max(1, st.page - 1);
+      else if (v === 'next') st.page = Math.min(totalPages, st.page + 1);
+      else st.page = Number(v);
+      onChange();
+    });
+    const sel = box.querySelector('[data-pgsize]');
+    if (sel) sel.onchange = () => { st.size = Number(sel.value); st.page = 1; onChange(); };
+  }
 
   /* ====================================================================
    *  MÀN HÌNH 1 — DASHBOARD
@@ -650,6 +707,8 @@
    * ==================================================================== */
   async function renderDonHang() {
     toolbarBtn('📊 Xuất Excel theo kỳ', 'btn-primary', () => openExportPeriod());
+    toolbarBtn('🧾 Phiếu thu (xlsx)', 'btn-light', () => openExportPhieu('thu'));
+    toolbarBtn('📋 Phiếu giao nhận (xlsx)', 'btn-light', () => openExportPhieu('giaonhan'));
     toolbarBtn('⬇️ Template đơn (xlsx)', 'btn-light', () => downloadPoTemplate());
     toolbarBtn('📥 Nhập đơn từ Excel', 'btn-warn', () => {
       const inp = document.createElement('input');
@@ -697,13 +756,13 @@
             <td>${esc((d.ngay_tao || '').slice(0, 10))}</td>
               <td class="act">
               <button class="ibtn ibtn-primary" data-view="${d.id_don_hang}" title="Chi tiết">👁️</button>
-              ${[C.PO_STATUS.NHAP, C.PO_STATUS.DA_GUI].includes(d.trang_thai)
-                ? `<button class="ibtn ibtn-warn" data-editpo="${d.id_don_hang}" title="Sửa đơn">✏️</button>` : ''}
+              <button class="ibtn ibtn-warn" data-editpo="${d.id_don_hang}" title="Sửa đơn">✏️</button>
               <button class="ibtn" data-pdf="${d.id_don_hang}" title="In Đơn đặt hàng (PDF)">🖨️</button>
               ${[C.PO_STATUS.DA_GIAO, C.PO_STATUS.DA_XUAT_HD, C.PO_STATUS.TT_MOT_PHAN, C.PO_STATUS.DA_THANH_TOAN].includes(d.trang_thai)
                 ? `<button class="ibtn" data-pgn="${d.id_don_hang}" title="In Phiếu giao nhận (PDF)">📋</button>` : ''}
               ${d.trang_thai === C.PO_STATUS.DA_THANH_TOAN
-                ? `<button class="ibtn" data-pchi="${d.id_don_hang}" title="In Phiếu chi / Ủy nhiệm chi (PDF)">🧾</button>` : ''}
+                ? `<button class="ibtn" data-pchi="${d.id_don_hang}" title="In Phiếu chi / Ủy nhiệm chi (PDF)">🧾</button>
+                   <button class="ibtn" data-pthu="${d.id_don_hang}" title="In Phiếu thu (PDF)">🧾</button>` : ''}
               <button class="ibtn" data-xls="${d.id_don_hang}" title="Xuất Excel">📤</button>
               ${C.PO_NO_DELETE_FROM.includes(d.trang_thai) ? '' : `<button class="ibtn ibtn-danger" data-del="${d.id_don_hang}" title="Xóa">🗑️</button>`}
             </td>
@@ -722,6 +781,9 @@
 
 
       $$('[data-pchi]', view()).forEach(b => b.onclick = () => printPhieuChi(b.dataset.pchi));
+
+
+      $$('[data-pthu]', view()).forEach(b => b.onclick = () => printPhieuThu(b.dataset.pthu));
 
       $$('[data-xls]', view()).forEach(b => b.onclick = () => exportPoExcel(b.dataset.xls));
 
@@ -878,6 +940,171 @@
     });
   }
 
+    /* ====================================================================
+   *  XUẤT EXCEL HÀNG LOẠT THEO NCC: Phiếu THU & Phiếu GIAO NHẬN
+   *  loai = 'thu' | 'giaonhan'. Chọn kỳ -> mỗi NCC 1 sheet, mỗi đơn 1 block.
+   * ==================================================================== */
+  async function openExportPhieu(loai) {
+    const dhsAll = (await window.API.listDonHang()).filter(d => d.trang_thai !== C.PO_STATUS.DA_HUY);
+    // Phiếu thu chỉ áp dụng đơn đã thanh toán; phiếu giao nhận áp dụng từ đã giao trở đi
+    const dhs = loai === 'thu'
+      ? dhsAll.filter(d => d.trang_thai === C.PO_STATUS.DA_THANH_TOAN)
+      : dhsAll.filter(d => [C.PO_STATUS.DA_GIAO, C.PO_STATUS.DA_XUAT_HD, C.PO_STATUS.TT_MOT_PHAN, C.PO_STATUS.DA_THANH_TOAN].includes(d.trang_thai));
+    if (!dhs.length) return toast(loai === 'thu' ? 'Chưa có đơn nào "Đã thanh toán"' : 'Chưa có đơn nào "Đã giao hàng" trở lên', 'error', 5000);
+
+    const months = [...new Set(dhs.map(d => {
+      const m = /PO-(\d{4})(\d{2})-/.exec(d.ma_don_hang); return m ? `${m[1]}-${m[2]}` : (d.ngay_tao||'').slice(0,7);
+    }).filter(Boolean))].sort().reverse();
+
+    const tenLoai = loai === 'thu' ? 'Phiếu thu' : 'Phiếu giao nhận';
+    openModal({
+      title: `🧾 Xuất ${tenLoai} hàng loạt (theo NCC)`,
+      body: `<div class="form-grid">
+          <label class="col-2">Chọn kỳ (tháng) *
+            <select id="ph_month"><option value="__all">— Tất cả các kỳ —</option>${months.map(m => `<option>${m}</option>`).join('')}</select></label>
+        </div>
+        <div class="alert sm">Mỗi nhà cung cấp là 1 sheet riêng, gộp tất cả ${tenLoai.toLowerCase()} của NCC đó trong kỳ. File kẻ khung, vừa khổ A4.</div>`,
+      foot: [
+        { label: 'Hủy', class: 'btn-light', onClick: closeModal },
+        { label: '⬇️ Xuất file', class: 'btn-primary', onClick: () => runExportPhieu(loai, $('#ph_month').value) },
+      ],
+    });
+  }
+
+  async function runExportPhieu(loai, month) {
+    const dhsAll = (await window.API.listDonHang()).filter(d => d.trang_thai !== C.PO_STATUS.DA_HUY);
+    let dhs = loai === 'thu'
+      ? dhsAll.filter(d => d.trang_thai === C.PO_STATUS.DA_THANH_TOAN)
+      : dhsAll.filter(d => [C.PO_STATUS.DA_GIAO, C.PO_STATUS.DA_XUAT_HD, C.PO_STATUS.TT_MOT_PHAN, C.PO_STATUS.DA_THANH_TOAN].includes(d.trang_thai));
+
+    if (month && month !== '__all') {
+      const monthKey = month.replace('-', '');
+      dhs = dhs.filter(d => {
+        const m = /PO-(\d{6})-/.exec(d.ma_don_hang);
+        const k = m ? m[1] : (d.ngay_tao||'').slice(0,7).replace('-','');
+        return k === monthKey;
+      });
+    }
+    if (!dhs.length) return toast('Kỳ này không có dữ liệu phù hợp', 'error');
+
+    const nccList = await window.API.listNCC();
+    const nccMap = Object.fromEntries(nccList.map(n => [n.id_ncc, n]));
+    const byNcc = {};
+    for (const d of dhs) (byNcc[d.id_ncc] = byNcc[d.id_ncc] || []).push(d);
+
+    const wb = XLSX.utils.book_new();
+    for (const idNcc of Object.keys(byNcc).sort()) {
+      const orders = byNcc[idNcc].sort((a,b)=>a.ma_don_hang.localeCompare(b.ma_don_hang));
+      const detail = [];
+      for (const po of orders) {
+        const cts = await window.API.listChiTietByDon(po.id_don_hang);
+        let tt = null;
+        if (loai === 'thu') {
+          const list = await window.API.listThanhToanByDon(po.id_don_hang);
+          tt = list.slice().sort((a,b)=>(a.ngay_thanh_toan||'').localeCompare(b.ngay_thanh_toan||''));
+        }
+        detail.push({ po, cts, tt });
+      }
+      const ncc = nccMap[idNcc] || { id_ncc:idNcc, ten_ncc:idNcc };
+      const ws = loai === 'thu'
+        ? buildPhieuThuSheet(month, ncc, detail)
+        : buildPhieuGiaoNhanSheet(month, ncc, detail);
+      setA4(ws);
+      XLSX.utils.book_append_sheet(wb, ws, idNcc);
+    }
+    const tenFile = loai === 'thu' ? 'PhieuThu' : 'PhieuGiaoNhan';
+    const tenKy = (month && month !== '__all') ? month : 'TatCa';
+    XLSX.writeFile(wb, `${tenFile}_${tenKy}_TheoNCC.xlsx`);
+    toast(`Đã xuất ${Object.keys(byNcc).length} NCC`, 'success');
+  }
+
+  // 1 sheet = 1 NCC: bảng tổng hợp Phiếu thu (mỗi đơn 1 dòng) + tổng cộng
+  function buildPhieuThuSheet(month, ncc, detail) {
+    const NC = 6; // STT, Mã đơn, Ngày TT, Lý do, Người nộp (NCC), Số tiền
+    const aoa = [];
+    aoa.push([`BẢNG KÊ PHIẾU THU — KỲ ${month && month !== '__all' ? month : 'TẤT CẢ'}`, '', '', '', '', '']);
+    aoa.push([`Nhà cung cấp (người nộp tiền): ${ncc.id_ncc} - ${ncc.ten_ncc}`, '', '', '', '', '']);
+    aoa.push([`Địa chỉ: ${ncc.dia_chi || ''}`, '', '', '', '', '']);
+    const headRow = 3;
+    aoa.push(['STT', 'Mã đơn', 'Ngày thu', 'Lý do thu', 'Người nộp tiền', 'Số tiền']);
+
+    const merges = [
+      { s:{r:0,c:0}, e:{r:0,c:NC-1} },
+      { s:{r:1,c:0}, e:{r:1,c:NC-1} },
+      { s:{r:2,c:0}, e:{r:2,c:NC-1} },
+    ];
+    let stt = 1, grand = 0;
+    detail.forEach(({ po, tt }) => {
+      const tien = (tt || []).reduce((a, t) => a + (Number(t.so_tien_thanh_toan) || 0), 0) || po.gia_tri_don_hang;
+      const ngay = (tt && tt.length) ? (tt[tt.length-1].ngay_thanh_toan || '') : '';
+      grand += tien;
+      aoa.push([stt++, po.ma_don_hang, ngay, `Thanh toán tiền mua hàng đơn ${po.ma_don_hang}`, ncc.ten_ncc, tien]);
+    });
+    aoa.push(['', '', '', '', 'TỔNG CỘNG', grand]);
+    const totalRow = aoa.length - 1;
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:5},{wch:22},{wch:13},{wch:40},{wch:28},{wch:16}];
+    ws['!merges'] = merges;
+    styleRange(ws, 0, 0, 0, NC-1, () => XL.title());
+    styleRange(ws, 1, 2, 0, NC-1, () => XL.sub());
+    styleRange(ws, headRow, headRow, 0, NC-1, () => XL.head());
+    for (let r = headRow + 1; r <= totalRow; r++) {
+      const isTotal = r === totalRow;
+      for (let c = 0; c < NC; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+        if (isTotal) ws[addr].s = (c === NC-1) ? XL.total() : (c === NC-2 ? { font:{bold:true}, alignment:{horizontal:'right'}, border: XL.border() } : XL.cell('left'));
+        else ws[addr].s = (c===0||c===2) ? XL.cell('center') : (c===NC-1 ? XL.money() : XL.cell('left'));
+      }
+    }
+    ws['!ref'] = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:totalRow,c:NC-1} });
+    return ws;
+  }
+
+  // 1 sheet = 1 NCC: Phiếu giao nhận, mỗi đơn 1 block chi tiết mặt hàng
+  function buildPhieuGiaoNhanSheet(month, ncc, detail) {
+    const NC = 7; // STT, Mã đơn, Mã hàng, Tên, ĐVT, SL đặt, SL thực giao
+    const aoa = [];
+    aoa.push([`PHIẾU GIAO NHẬN HÀNG HÓA — KỲ ${month && month !== '__all' ? month : 'TẤT CẢ'}`, '', '', '', '', '', '']);
+    aoa.push([`Bên giao (Nhà cung cấp): ${ncc.id_ncc} - ${ncc.ten_ncc}`, '', '', '', '', '', '']);
+    aoa.push([`Địa chỉ: ${ncc.dia_chi || ''}`, '', '', '', '', '', '']);
+    const headRow = 3;
+    aoa.push(['STT', 'Mã đơn', 'Mã hàng', 'Tên hàng hóa', 'ĐVT', 'SL đặt', 'SL thực giao']);
+
+    const merges = [
+      { s:{r:0,c:0}, e:{r:0,c:NC-1} },
+      { s:{r:1,c:0}, e:{r:1,c:NC-1} },
+      { s:{r:2,c:0}, e:{r:2,c:NC-1} },
+    ];
+    const subRows = [];
+    let stt = 1;
+    detail.forEach(({ po, cts }) => {
+      cts.forEach(c => aoa.push([stt++, po.ma_don_hang, c.ma_hang, c.ten_hang_hoa, c.dvt, c.so_luong, c.so_luong]));
+      aoa.push(['', '', '', '', '', `Cộng đơn ${po.ma_don_hang}`, cts.reduce((a,c)=>a+(c.so_luong||0),0)]);
+      subRows.push(aoa.length - 1);
+    });
+    const lastRow = aoa.length - 1;
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:5},{wch:22},{wch:12},{wch:38},{wch:8},{wch:9},{wch:11}];
+    ws['!merges'] = merges;
+    styleRange(ws, 0, 0, 0, NC-1, () => XL.title());
+    styleRange(ws, 1, 2, 0, NC-1, () => XL.sub());
+    styleRange(ws, headRow, headRow, 0, NC-1, () => XL.head());
+    for (let r = headRow + 1; r <= lastRow; r++) {
+      const isSub = subRows.includes(r);
+      for (let c = 0; c < NC; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+        if (isSub) ws[addr].s = (c === NC-1) ? XL.total() : (c === NC-2 ? { font:{bold:true,italic:true}, alignment:{horizontal:'right'}, border: XL.border() } : XL.cell('left'));
+        else ws[addr].s = (c===0||c===4||c===5||c===6) ? XL.cell('center') : XL.cell('left');
+      }
+    }
+    ws['!ref'] = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:lastRow,c:NC-1} });
+    return ws;
+  }
+
   async function runExportPeriod(month) {
     const monthKey = month.replace('-', ''); // YYYYMM
     const dhs = (await window.API.listDonHang()).filter(d => {
@@ -974,11 +1201,9 @@
    *  - Thêm/Xóa dòng, sửa Mã hàng/Tên/ĐVT/SL/Đơn giá
    *  Chỉ cho sửa khi đơn ở trạng thái Nháp / Đã gửi đơn.
    * ==================================================================== */
-  async function openPoEditor(id) {
+   async function openPoEditor(id) {
     const po = await window.API.getDonHang(id);
-    if (![C.PO_STATUS.NHAP, C.PO_STATUS.DA_GUI].includes(po.trang_thai))
-      return toast('Chỉ sửa được đơn ở trạng thái Nháp / Đã gửi đơn', 'error');
-
+    // Debug: cho phép sửa ở MỌI trạng thái (đã bỏ chặn theo yêu cầu quản lý linh hoạt)
     const [cts, nccList, cts2, khs] = await Promise.all([
       window.API.listChiTietByDon(id),
       window.API.listNCC(),
@@ -1305,7 +1530,10 @@
         </div>`,
       foot: [
         { label: 'Đóng', class: 'btn-light', onClick: closeModal },
-        { label: '🖨️ In PDF', class: 'btn-light', onClick: () => printPO(id) },
+        { label: '✏️ Sửa đơn', class: 'btn-warn', onClick: () => { closeModal(); openPoEditor(id); } },
+        { label: '🖨️ In PDF đơn', class: 'btn-light', onClick: () => printPO(id) },
+        { label: '🧾 In phiếu chi', class: 'btn-light', onClick: () => printPhieuChi(id) },
+        { label: '🧾 In phiếu thu', class: 'btn-light', onClick: () => printPhieuThu(id) },
       ],
     });
 
@@ -1370,46 +1598,109 @@
     setTimeout(() => document.body.classList.remove('printing'), 500);
   }
 
-  /* -------------------- IN PHIẾU CHI / ỦY NHIỆM CHI (PDF qua window.print) -------------------- */
-  // Tự chọn loại chứng từ theo hình thức thanh toán: Tiền mặt -> Phiếu chi; Chuyển khoản -> Ủy nhiệm chi.
-  async function printPhieuChi(id) {
+    /* -------------------- IN PHIẾU THU (PDF) — mẫu công ty -------------------- */
+  // Tên & địa chỉ "người nộp tiền" lấy theo Nhà cung cấp của đơn.
+  async function printPhieuThu(id) {
     const po = await window.API.getDonHang(id);
     const ncc = (await window.API.listNCC()).find(n => n.id_ncc === po.id_ncc) || {};
     const list = await window.API.listThanhToanByDon(id);
     if (!list.length) return toast('Đơn chưa có giao dịch thanh toán', 'error');
 
-    // Gom các giao dịch — phân loại theo hình thức để chọn mẫu chứng từ
+    const sortedList = list.slice().sort((a, b) => (a.ngay_thanh_toan || '').localeCompare(b.ngay_thanh_toan || ''));
+    const tongTien = sortedList.reduce((a, t) => a + (Number(t.so_tien_thanh_toan) || 0), 0);
+    const t0 = sortedList[sortedList.length - 1];
+    const d = (t0.ngay_thanh_toan || window.API.todayStr()).split('-');
+    const ngay = d[2] || '………', thang = d[1] || '………', nam = d[0] || '………';
+
+    $('#printArea').innerHTML = `
+      <div class="print-doc pt-doc">
+        <div class="pt-company"><b>${esc(ncc.ten_ncc || po.id_ncc || '………………………………')}</b></div>
+        <div class="pt-addr">${esc(ncc.dia_chi || '………………………………………………………')}</div>
+        <div class="pt-title">PHIẾU THU</div>
+        <div class="pt-date"><i>Ngày ${ngay} tháng ${thang} năm ${nam}</i></div>
+        <div class="pt-lines">
+          <div><b>Họ và tên người nộp tiền:</b> ${esc(ncc.ten_ncc || po.id_ncc)} …………………………………</div>
+          <div><b>Địa chỉ:</b> ${esc(ncc.dia_chi || '………………………………………………………')}</div>
+          <div><b>Lý do thu:</b> Thanh toán tiền mua hàng theo đơn ${esc(po.ma_don_hang)}</div>
+          <div><b>Số tiền:</b> <b>${fmt(tongTien)}</b></div>
+          <div><b>Viết bằng chữ:</b> <i>${esc(docTienBangChu(tongTien))}</i></div>
+          <div><b>Kèm theo</b> ……… chứng từ gốc</div>
+        </div>
+        <div class="pt-sign">
+          <div><b>Người nhận tiền</b><br><small>(ký, họ tên)</small></div>
+          <div><b>Người nộp tiền</b><br><small>(ký, họ tên)</small></div>
+        </div>
+      </div>`;
+    document.body.classList.add('printing');
+    window.print();
+    setTimeout(() => document.body.classList.remove('printing'), 500);
+  }
+
+  /* -------------------- IN PHIẾU CHI / ỦY NHIỆM CHI (PDF qua window.print) -------------------- */
+  // Tự chọn loại chứng từ theo hình thức thanh toán: Tiền mặt -> Phiếu chi; Chuyển khoản -> Ủy nhiệm chi.
+    async function printPhieuChi(id) {
+    const po = await window.API.getDonHang(id);
+    const ncc = (await window.API.listNCC()).find(n => n.id_ncc === po.id_ncc) || {};
+    const list = await window.API.listThanhToanByDon(id);
+    if (!list.length) return toast('Đơn chưa có giao dịch thanh toán', 'error');
+
     const sortedList = list.slice().sort((a, b) => (a.ngay_thanh_toan || '').localeCompare(b.ngay_thanh_toan || ''));
     const tongTien = sortedList.reduce((a, t) => a + (Number(t.so_tien_thanh_toan) || 0), 0);
     const coTienMat = sortedList.some(t => t.hinh_thuc_thanh_toan === 'Tiền mặt');
     const tieuDe = coTienMat && !sortedList.some(t => t.hinh_thuc_thanh_toan === 'Chuyển khoản')
       ? 'PHIẾU CHI' : 'ỦY NHIỆM CHI';
+    const t0 = sortedList[sortedList.length - 1]; // giao dịch gần nhất làm đại diện
 
-    const t0 = sortedList[sortedList.length - 1]; // giao dịch gần nhất làm đại diện ngày/HĐ
+    // Tách ngày/tháng/năm từ ngày thanh toán gần nhất (YYYY-MM-DD)
+    const d = (t0.ngay_thanh_toan || window.API.todayStr()).split('-');
+    const ngay = d[2] || '....', thang = d[1] || '....', nam = d[0] || '....';
+
+    const lyDo = `Chi thanh toán tiền hàng theo đơn ${po.ma_don_hang}`
+      + (t0.so_hoa_don_ncc ? ` (HĐ VAT số ${t0.so_hoa_don_ncc})` : '');
+
     $('#printArea').innerHTML = `
-      <div class="print-doc">
-        <div class="print-title">${tieuDe}</div>
-        <div class="print-sub">Số: ${esc(po.ma_don_hang)}-CT — Ngày: ${esc(t0.ngay_thanh_toan || '')}</div>
-        <div class="print-meta">
-          <div><b>Đơn vị nhận tiền:</b> ${esc(ncc.ten_ncc || po.id_ncc)}<br>
-            <b>Điện thoại:</b> ${esc(ncc.dien_thoai || '')}<br>
-            <b>Địa chỉ:</b> ${esc(ncc.dia_chi || '')}</div>
-          <div><b>Tham chiếu đơn:</b> ${esc(po.ma_don_hang)}<br>
-            <b>Giá trị đơn:</b> ${fmt(po.gia_tri_don_hang)}<br>
-            <b>Số hóa đơn VAT:</b> ${esc(t0.so_hoa_don_ncc || '')}</div>
+      <div class="print-doc pc-doc">
+        <div class="pc-top">
+          <div class="pc-unit">
+            <div><b>Đơn vị:</b> .................................</div>
+            <div><b>Địa chỉ:</b> .................................</div>
+          </div>
+          <div class="pc-form">
+            <div class="pc-form-no"><b>Mẫu số 02 - TT</b></div>
+            <div class="pc-form-sub">(Ban hành theo Thông tư số 133/2016/TT-BTC<br>ngày 26/8/2016 của Bộ Tài chính)</div>
+          </div>
         </div>
-        <table class="print-tbl">
-          <thead><tr><th>STT</th><th>Ngày TT</th><th>Số HĐ VAT</th><th>Hình thức</th><th>Người duyệt</th><th>Số tiền</th></tr></thead>
-          <tbody>${sortedList.map((t, i) => `<tr><td>${i + 1}</td><td>${esc(t.ngay_thanh_toan || '')}</td>
-            <td>${esc(t.so_hoa_don_ncc || '')}</td><td>${esc(t.hinh_thuc_thanh_toan || '')}</td>
-            <td>${esc(t.nguoi_duyet_thanh_toan || '')}</td><td>${fmt(t.so_tien_thanh_toan)}</td></tr>`).join('')}</tbody>
-          <tfoot><tr><td colspan="5" style="text-align:right"><b>TỔNG CHI</b></td><td><b>${fmt(tongTien)}</b></td></tr></tfoot>
-        </table>
-        <div class="print-amount-text">Số tiền viết bằng chữ: <i>${esc(docTienBangChu(tongTien))}</i></div>
-        <div class="print-sign">
-          <div>Người lập phiếu<br><small>(Ký, họ tên)</small></div>
-          <div>Kế toán trưởng<br><small>(Ký, họ tên)</small></div>
-          <div>Thủ trưởng đơn vị<br><small>(Ký, họ tên)</small></div>
+
+        <div class="pc-title">${tieuDe}</div>
+        <div class="pc-date"><i>Ngày ${ngay} tháng ${thang} năm ${nam}</i></div>
+
+        <div class="pc-quyenso">
+          <div>Quyển số: ..............</div>
+          <div>Số: ${esc(po.ma_don_hang)}-CT</div>
+          <div>Nợ: ..............................</div>
+          <div>Có: ..............................</div>
+        </div>
+
+        <div class="pc-lines">
+          <div><b>Họ và tên người nhận tiền:</b> ${esc(ncc.ten_ncc || po.id_ncc)}</div>
+          <div><b>Địa chỉ:</b> ${esc(ncc.dia_chi || '.................................................')}</div>
+          <div><b>Lý do chi:</b> ${esc(lyDo)}</div>
+          <div><b>Số tiền:</b> ${fmt(tongTien)} <span class="pc-byword">(Viết bằng chữ): <i>${esc(docTienBangChu(tongTien))}</i></span></div>
+          <div><b>Kèm theo:</b> ................................................. <b>Chứng từ gốc.</b></div>
+        </div>
+
+        <div class="pc-date2"><i>Ngày ${ngay} tháng ${thang} năm ${nam}</i></div>
+
+        <div class="pc-sign">
+          <div><b>Giám đốc</b><br><small>(Ký, họ tên, đóng dấu)</small></div>
+          <div><b>Kế toán trưởng</b><br><small>(Ký, họ tên)</small></div>
+          <div><b>Thủ quỹ</b><br><small>(Ký, họ tên)</small></div>
+          <div><b>Người lập phiếu</b><br><small>(Ký, họ tên)</small></div>
+          <div><b>Người nhận tiền</b><br><small>(Ký, họ tên)</small></div>
+        </div>
+
+        <div class="pc-footnote">
+          Đã nhận đủ số tiền (viết bằng chữ): <i>${esc(docTienBangChu(tongTien))}</i>
         </div>
       </div>`;
     document.body.classList.add('printing');
@@ -1734,11 +2025,14 @@
           ${nhoms.map(n => `<option value="${n.id_nhom}">${esc(n.ten_nhom)}</option>`).join('')}</select>
         <span class="muted" id="dmCount"></span>
       </div>
-      <div id="dmWrap"></div>`;
+      <div id="dmWrap"></div>
+      <div id="dmPager"></div>`;
     const draw = () => {
       const q = $('#dmSearch').value.trim().toLowerCase(), fn = $('#dmNhom').value;
-      const rows = data.filter(it => (!q || `${it.ten_hang_hoa} ${it.ma_hang}`.toLowerCase().includes(q)) && (!fn || it.id_nhom === fn)).slice(0, 200);
-      $('#dmCount').textContent = `${rows.length} mặt hàng`;
+      const filtered = data.filter(it => (!q || `${it.ten_hang_hoa} ${it.ma_hang}`.toLowerCase().includes(q)) && (!fn || it.id_nhom === fn));
+      const rows = pageSlice('danhmuc', filtered);
+      $('#dmCount').textContent = `${filtered.length} mặt hàng`;
+      renderPager('dmPager', 'danhmuc', filtered.length, draw);
       $('#dmWrap').innerHTML = card(`<table class="tbl"><thead><tr>
         <th>Mã</th><th>Tên hàng hóa</th><th>ĐVT</th><th>Đơn giá</th><th>Nhóm</th><th>NCC</th><th>Chu kỳ</th><th>Hư hỏng</th><th>Thao tác</th></tr></thead>
         <tbody>${rows.map(it => `<tr><td><b>${esc(it.ma_hang)}</b></td><td>${esc(it.ten_hang_hoa)}</td>
@@ -1759,7 +2053,20 @@
 
       $$('[data-vtdel]', $('#dmWrap')).forEach(b => b.onclick = () => vatTuDelete(b.dataset.vtdel));
     };
-    $('#dmSearch').oninput = draw; $('#dmNhom').onchange = draw; draw();
+    // vẽ thanh phân trang & nối lại sự kiện đổi trang
+    renderPager('dmPager', 'danhmuc', data.filter(it => {
+      const q = $('#dmSearch').value.trim().toLowerCase(), fn = $('#dmNhom').value;
+      return (!q || `${it.ten_hang_hoa} ${it.ma_hang}`.toLowerCase().includes(q)) && (!fn || it.id_nhom === fn);
+    }).length, () => { draw(); });
+    // khi tìm kiếm / đổi nhóm: về trang 1 rồi vẽ lại cả bảng & pager
+    const drawAll = () => {
+      getPage('danhmuc').page = 1;
+      draw();
+      const q = $('#dmSearch').value.trim().toLowerCase(), fn = $('#dmNhom').value;
+      const cnt = data.filter(it => (!q || `${it.ten_hang_hoa} ${it.ma_hang}`.toLowerCase().includes(q)) && (!fn || it.id_nhom === fn)).length;
+      renderPager('dmPager', 'danhmuc', cnt, () => { draw(); });
+    };
+    $('#dmSearch').oninput = drawAll; $('#dmNhom').onchange = drawAll; draw();
   }
 
   async function exportDataExcel() {
