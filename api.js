@@ -318,7 +318,7 @@ window.API = (function () {
     for (const it of items) {
       const ncc = it.nha_cung_cap && /^NCC\d{3}$/.test(it.nha_cung_cap)
         ? it.nha_cung_cap
-        : C.GROUP_TO_NCC[it.ma_nhom];
+        : nccOfItem(it);
       if (!ncc) continue;
       (byNcc[ncc] = byNcc[ncc] || []).push({
         ma_hang: it.ma_hang, ten_hang_hoa: it.ten_hang_hoa, dvt: it.dvt,
@@ -657,7 +657,7 @@ Hãy chọn và sắp xếp tối đa 3 mã phù hợp nhất. CHỈ trả JSON 
     const warnItems = [];        // cảnh báo chu kỳ
     const blockedByDup = [];     // các mã bị loại do trùng kỳ trước (ứng viên cho "tỷ lệ cho phép trùng")
     pool = pool.filter(it => {
-      if (nccSet.length  && !nccSet.includes(C.GROUP_TO_NCC[it.ma_nhom])) return false;
+      if (nccSet.length  && !nccSet.includes(nccOfItem(it))) return false;
       if (nhomSet.length && !nhomSet.includes(it.id_nhom)) return false;
       if (opts.onlyDeHuHong && it.muc_do_hu_hong !== 'Dễ hư hỏng') return false;
       if (it.don_gia <= 0) return false;
@@ -701,7 +701,8 @@ Hãy chọn và sắp xếp tối đa 3 mã phù hợp nhất. CHỈ trả JSON 
     // 2) Gom pool theo NCC (mỗi PO chỉ 1 NCC — Supplier Isolation)
     const poolByNcc = {};
     pool.forEach(it => {
-      const ncc = C.GROUP_TO_NCC[it.ma_nhom];
+      const ncc = nccOfItem(it);
+      if (!ncc) return;
       (poolByNcc[ncc] = poolByNcc[ncc] || []).push(it);
     });
 
@@ -947,6 +948,27 @@ Hãy chọn và sắp xếp tối đa 3 mã phù hợp nhất. CHỈ trả JSON 
     }
   }
 
+  /* -------------------- 19B. ÁNH XẠ NHÓM→NCC ĐỘNG (Debug 2) --------------------
+   * Đọc trường nhom_phu_trach của từng NCC trong DB -> bảng id_nhom -> id_ncc.
+   * Hỗ trợ cả id_nhom (NH01..) lẫn ma_nhom (CDM, KHA..) để tương thích dữ liệu cũ.
+   */
+  async function buildDynGroupMap() {
+    const nccs = await getAll(S.NCC);
+    const map = {};
+    nccs.forEach(n => {
+      (n.nhom_phu_trach || []).forEach(g => { map[g] = n.id_ncc; });
+    });
+    window.DYN_GROUP_TO_NCC = map;
+    return map;
+  }
+  // Tra NCC phụ trách của 1 vật tư theo thứ tự: id_nhom -> ma_nhom -> cấu hình cứng
+  function nccOfItem(item) {
+    const m = window.DYN_GROUP_TO_NCC || {};
+    if (item && item.id_nhom && m[item.id_nhom]) return m[item.id_nhom];
+    if (item && item.ma_nhom && m[item.ma_nhom]) return m[item.ma_nhom];
+    return C.GROUP_TO_NCC[item ? item.ma_nhom : ''] || null;
+  }
+
   /* ====================================================================
    *  20. CRUD NHÀ CUNG CẤP
    * ==================================================================== */
@@ -957,13 +979,17 @@ Hãy chọn và sắp xếp tối đa 3 mã phù hợp nhất. CHỈ trả JSON 
       let max = 0; all.forEach(n => { const m = /NCC(\d+)/.exec(n.id_ncc); if (m) max = Math.max(max, +m[1]); });
       o.id_ncc = 'NCC' + String(max + 1).padStart(3, '0');
     }
-    return put(S.NCC, o);
+    await put(S.NCC, o);
+    await buildDynGroupMap();   // Debug 2: cập nhật ánh xạ động ngay sau khi lưu
+    return o;
   }
   async function deleteNCC(id) {
     const dhs = await getByIndex(S.DON_HANG, 'id_ncc', id);
     const active = dhs.filter(d => d.trang_thai !== C.PO_STATUS.DA_HUY);
     if (active.length) throw new Error(`Không thể xóa: NCC đang có ${active.length} đơn hàng hiệu lực.`);
-    return del(S.NCC, id);
+    await del(S.NCC, id);
+    await buildDynGroupMap();   // Debug 2: cập nhật ánh xạ động sau khi xóa
+    return true;
   }
 
   /* -------------------- EXPORT API -------------------- */
@@ -999,5 +1025,7 @@ Hãy chọn và sắp xếp tối đa 3 mã phù hợp nhất. CHỈ trả JSON 
     autoGeneratePOs, autoGeneratePOsAI,
     // CRUD NCC
     saveNCC, deleteNCC,
+    // Debug 2: ánh xạ nhóm->NCC động
+    buildDynGroupMap, nccOfItem,
   };
 })();

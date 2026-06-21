@@ -4,6 +4,8 @@
 (function () {
   const C = window.CONFIG;
   const fmt = window.API.fmt;
+  // Debug 2: lấy mã NCC của 1 vật tư theo ánh xạ động (fallback cấu hình cứng)
+  const nccOf = (it) => (window.API.nccOfItem ? window.API.nccOfItem(it) : C.GROUP_TO_NCC[it.ma_nhom]) || '—';
 
   /* -------------------- STATE TOÀN CỤC -------------------- */
   const AppState = {
@@ -474,14 +476,14 @@
       const filtered = data.filter(it => {
         if (q && !(`${it.ten_hang_hoa} ${it.ma_hang}`.toLowerCase().includes(q))) return false;
         if (fNhom && it.id_nhom !== fNhom) return false;          // R-01: lọc bằng id_nhom
-        if (fNcc && C.GROUP_TO_NCC[it.ma_nhom] !== fNcc) return false;
+        if (fNcc && nccOf(it) !== fNcc) return false;
         return true;
       }).slice(0, 120);
       $('#pkList').innerHTML = filtered.map(it => `
         <div class="pk-item" data-ma="${esc(it.ma_hang)}">
           <div class="pk-info">
             <b>${esc(it.ten_hang_hoa)}</b>
-            <small>${esc(it.ma_hang)} · ${esc(it.phan_loai_nhom_hang)} · ${esc(C.GROUP_TO_NCC[it.ma_nhom])}</small>
+            <small>${esc(it.ma_hang)} · ${esc(it.phan_loai_nhom_hang)} · ${esc(nccOf(it))}</small>
             <small>${esc(it.dvt)} · ${fmt(it.don_gia)} · CK: ${esc(it.chu_ky_thay_the)} · ${esc(it.muc_do_hu_hong)}</small>
           </div>
           <button class="btn btn-sm btn-primary" data-add="${esc(it.ma_hang)}">+ Thêm</button>
@@ -708,7 +710,8 @@
    *  MÀN HÌNH 4 — ĐƠN ĐẶT HÀNG (vòng đời PO)
    * ==================================================================== */
   async function renderDonHang() {
-    toolbarBtn('📊 Xuất Excel theo kỳ', 'btn-primary', () => openExportPeriod());
+    toolbarBtn('➕ Thêm đơn hàng', 'btn-primary', () => openPoCreator());
+    toolbarBtn('📊 Xuất Excel theo kỳ', 'btn-light', () => openExportPeriod());
     toolbarBtn('🧾 Phiếu thu (xlsx)', 'btn-light', () => openExportPhieu('thu'));
     toolbarBtn('📋 Phiếu giao nhận (xlsx)', 'btn-light', () => openExportPhieu('giaonhan'));
     toolbarBtn('⬇️ Template đơn (xlsx)', 'btn-light', () => downloadPoTemplate());
@@ -764,7 +767,10 @@
           <th>Mã đơn</th><th>Công trình</th><th>NCC</th><th>Giá trị</th>
           <th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead>
         <tbody>${pageRows.map(d => {
-          const kh = khMap[d.id_ke_hoach], ct = kh ? ctMap[kh.id_cong_trinh] : null;
+          const kh = khMap[d.id_ke_hoach];
+          // Ưu tiên id_cong_trinh lưu thẳng trên đơn (đơn thủ công); nếu không có thì suy theo kế hoạch
+          const ctId = d.id_cong_trinh || (kh ? kh.id_cong_trinh : null);
+          const ct = ctId ? ctMap[ctId] : null;
           return `<tr>
             <td><b>${esc(d.ma_don_hang)}</b></td>
             <td>${esc(ct ? ct.ten_cong_trinh : '—')}</td>
@@ -1213,17 +1219,85 @@
     return ws;
   }
 
-    /* ====================================================================
-   *  DEBUG 3 — SỬA ĐƠN HÀNG (chỉ khi Nháp / Đã gửi đơn)
-   *  Cùng cơ chế editor với Debug 2: thêm/xóa dòng, sửa SL/đơn giá/tên.
-   * ==================================================================== */
-  /* ====================================================================
+   /* ====================================================================
    *  SỬA ĐƠN HÀNG TOÀN DIỆN (Debug)
    *  - Sửa Mã đơn, Nhà cung cấp, Mã công trình (qua ô nhập-tìm gợi ý)
    *  - Thêm/Xóa dòng, sửa Mã hàng/Tên/ĐVT/SL/Đơn giá
    *  Chỉ cho sửa khi đơn ở trạng thái Nháp / Đã gửi đơn.
    * ==================================================================== */
-   async function openPoEditor(id) {
+   /* ====================================================================
+   *  DEBUG 3 — THÊM ĐƠN ĐẶT HÀNG MỚI (Modal giống "Sửa đơn", có chọn NCC)
+   * ==================================================================== */
+  async function openPoCreator() {
+    const [nccList, ctList, allData] = await Promise.all([
+      window.API.listNCC(), window.API.listCongTrinh(), window.API.listData(),
+    ]);
+    AppState.cache.allData = allData;
+
+    // Sinh mã đơn tạm theo kỳ hiện tại + NCC đầu tiên (người dùng có thể sửa lại)
+    const thangNay = new Date().toISOString().slice(0, 7);
+    const nccDefault = nccList[0] ? nccList[0].id_ncc : '';
+    const maTam = nccDefault ? await window.API.buildPoCode(thangNay, nccDefault) : '';
+
+    AppState.cache.poEdit = {
+      id_don_hang: null,          // null = tạo mới (Debug 3)
+      ma_don_hang: maTam,
+      id_ncc: nccDefault,
+      id_ke_hoach: null,
+      id_cong_trinh: null,
+      nccList, ctList,
+      origCt: [],                 // chưa có dòng cũ
+      lines: [{ ma_hang: '', ten_hang_hoa: '', dvt: '', so_luong: 1, don_gia_thuc_te: 0, thanh_tien: 0 }],
+    };
+
+    openModal({
+      wide: true,
+      title: '➕ Thêm đơn đặt hàng mới',
+      body: `
+        <div class="form-grid">
+          <label>Mã đơn hàng *
+            <input id="pe_ma" value="${esc(maTam)}" placeholder="VD: PO-202606-NCC001-001"></label>
+          <label>Nhà cung cấp * (gõ để tìm)
+            <div class="combo" id="combo_ncc">
+              <input type="text" class="combo-inp" id="pe_ncc" autocomplete="off"
+                value="${esc(nccDisplay(nccList, nccDefault))}" placeholder="Gõ mã hoặc tên NCC…">
+              <input type="hidden" id="pe_ncc_id" value="${esc(nccDefault)}">
+              <div class="combo-menu" id="menu_ncc" hidden></div>
+            </div>
+          </label>
+          <label class="col-2">Công trình (gõ để tìm)
+            <div class="combo" id="combo_ct">
+              <input type="text" class="combo-inp" id="pe_ct" autocomplete="off"
+                value="" placeholder="Gõ mã hoặc tên công trình…">
+              <input type="hidden" id="pe_ct_id" value="">
+              <div class="combo-menu" id="menu_ct" hidden></div>
+            </div>
+          </label>
+          <label>Trạng thái
+            <select id="pe_tt">${Object.values(C.PO_STATUS).map(s => `<option ${s === C.PO_STATUS.NHAP ? 'selected' : ''}>${s}</option>`).join('')}</select>
+          </label>
+          <label>Ngày tạo đơn
+            <input id="pe_ngay" type="date" value="${esc(window.API.todayStr())}">
+          </label>
+        </div>
+        <div class="po-card" style="margin-top:14px">
+          <div id="poEditOne"></div>
+          <button class="btn btn-sm btn-light" id="poEditAdd">➕ Thêm dòng</button>
+        </div>
+        <div class="alert" id="poEditOneSum"></div>`,
+      foot: [
+        { label: 'Hủy', class: 'btn-light', onClick: closeModal },
+        { label: '💾 Lưu đơn mới', class: 'btn-primary', onClick: () => savePoEditor() },
+      ],
+    });
+    renderPoEditorOne();
+    setupCombo('combo_ncc', 'pe_ncc', 'pe_ncc_id', 'menu_ncc',
+      nccList.map(n => ({ id: n.id_ncc, label: `${n.id_ncc} - ${n.ten_ncc}`, search: `${n.id_ncc} ${n.ten_ncc}`.toLowerCase() })));
+    setupCombo('combo_ct', 'pe_ct', 'pe_ct_id', 'menu_ct',
+      ctList.map(c => ({ id: c.id_cong_trinh, label: `${c.ma_cong_trinh} - ${c.ten_cong_trinh}`, search: `${c.ma_cong_trinh} ${c.ten_cong_trinh}`.toLowerCase() })));
+  }
+
+    async function openPoEditor(id) {
     const po = await window.API.getDonHang(id);
     // Debug: cho phép sửa ở MỌI trạng thái (đã bỏ chặn theo yêu cầu quản lý linh hoạt)
     const [cts, nccList, cts2, khs] = await Promise.all([
@@ -1235,7 +1309,9 @@
     AppState.cache.allData = AppState.cache.allData || await window.API.listData();
 
     const kh = po.id_ke_hoach ? khs.find(k => k.id_ke_hoach === po.id_ke_hoach) : null;
-    const curCt = kh ? cts2.find(c => c.id_cong_trinh === kh.id_cong_trinh) : null;
+    // Ưu tiên id_cong_trinh lưu thẳng trên đơn (đơn thủ công); nếu không có thì suy theo kế hoạch
+    const ctId = po.id_cong_trinh || (kh ? kh.id_cong_trinh : null);
+    const curCt = ctId ? cts2.find(c => c.id_cong_trinh === ctId) : null;
 
     AppState.cache.poEdit = {
       id_don_hang: id,
@@ -1438,7 +1514,9 @@
         return toast('Mã đơn đã tồn tại, hãy chọn mã khác', 'error');
     }
 
-    // 4) Nếu đổi công trình -> cập nhật vào kế hoạch của đơn (nếu có kế hoạch)
+    // 4) Công trình: lưu thẳng id_cong_trinh lên đơn (đơn thủ công không cần kế hoạch).
+    //    Nếu đơn có kế hoạch và đổi công trình -> đồng bộ luôn vào kế hoạch.
+    const idCongTrinhChon = ctObj ? ctObj.id_cong_trinh : null;
     if (ctObj && E.id_ke_hoach) {
       const kh = await window.API.getKeHoach(E.id_ke_hoach);
       if (kh && kh.id_cong_trinh !== ctObj.id_cong_trinh) {
@@ -1447,14 +1525,21 @@
       }
     }
 
-    // 5) Xóa các dòng chi tiết cũ không còn
-    const keepIds = new Set(lines.filter(l => l.id_chi_tiet).map(l => l.id_chi_tiet));
-    for (const c of E.origCt) if (!keepIds.has(c.id_chi_tiet)) await window.API._del(window.API._store.CHI_TIET, c.id_chi_tiet);
+    // 6) Xác định id_don_hang trước (để chi tiết luôn gắn đúng đơn — kể cả khi tạo mới)
+    const isNew = !E.id_don_hang;
+    const po = isNew
+      ? { id_don_hang: window.API.uuid(), id_ke_hoach: null, ngay_tao: null, ghi_chu: '[Tạo thủ công]' }
+      : await window.API.getDonHang(E.id_don_hang);
+    E.id_don_hang = po.id_don_hang;   // chốt id để chi tiết bám đúng đơn
 
-    // 6) Lưu các dòng hiện tại
+    // 5) Xóa SẠCH toàn bộ chi tiết cũ của đơn, rồi ghi lại từ đầu => dữ liệu luôn nhất quán
+    const oldCts = await window.API.listChiTietByDon(E.id_don_hang);
+    for (const c of oldCts) await window.API._del(window.API._store.CHI_TIET, c.id_chi_tiet);
+
+    // 6b) Ghi lại các dòng hiện tại bằng id_chi_tiet MỚI (không dùng lại id cũ)
     for (const l of lines) {
       await window.API.saveChiTiet({
-        id_chi_tiet: l.id_chi_tiet, id_don_hang: E.id_don_hang,
+        id_chi_tiet: undefined, id_don_hang: E.id_don_hang,
         ma_hang: l.ma_hang || '(tùy chỉnh)', ten_hang_hoa: l.ten_hang_hoa,
         dvt: l.dvt || '', so_luong: l.so_luong,
         don_gia_de_xuat: l.don_gia_thuc_te, don_gia_thuc_te: l.don_gia_thuc_te,
@@ -1462,10 +1547,11 @@
       });
     }
 
-    // 7) Cập nhật đơn hàng (mã, NCC, giá trị, trạng thái, ngày tạo)
-    const po = await window.API.getDonHang(E.id_don_hang);
+    // 7) Cập nhật / Tạo mới đơn hàng (mã, NCC, giá trị, trạng thái, ngày tạo)
+    // (isNew và po đã được khai báo ở bước 6 phía trên)
     po.ma_don_hang = newMa;
     po.id_ncc = nccObj.id_ncc;
+    po.id_cong_trinh = idCongTrinhChon;   // ⬅️ lưu công trình trực tiếp lên đơn
     po.gia_tri_don_hang = giaTri;
 
     // Trạng thái — gán trực tiếp (cho phép sửa tự do trong màn này)
@@ -1482,7 +1568,7 @@
     await window.API.saveDonHang(po);
     // ✅ Đóng modal + làm mới danh sách sau khi lưu thành công
     closeModal();
-    toast('Đã lưu thay đổi đơn hàng', 'success');
+    toast(isNew ? 'Đã tạo đơn hàng mới' : 'Đã lưu thay đổi đơn hàng', 'success');
     renderDonHang();
 
   }
@@ -1762,7 +1848,7 @@
     const po = await window.API.getDonHang(id);
     const cts = await window.API.listChiTietByDon(id);
     const ncc = (await window.API.listNCC()).find(n => n.id_ncc === po.id_ncc) || {};
-    const kh = await window.API.getKeHoach(po.id_ke_hoach);
+    const kh = po.id_ke_hoach ? await window.API.getKeHoach(po.id_ke_hoacsh) : null;
     const ct = kh ? await window.API.getCongTrinh(kh.id_cong_trinh) : null;
 
     $('#printArea').innerHTML = `
@@ -2101,11 +2187,12 @@
         <th>Mã</th><th>Tên hàng hóa</th><th>ĐVT</th><th>Đơn giá</th><th>Nhóm</th><th>NCC</th><th>Chu kỳ</th><th>Hư hỏng</th><th>Thao tác</th></tr></thead>
         <tbody>${rows.map(it => `<tr><td><b>${esc(it.ma_hang)}</b></td><td>${esc(it.ten_hang_hoa)}</td>
           <td>${esc(it.dvt)}</td><td>${fmt(it.don_gia)}</td><td>${esc(it.phan_loai_nhom_hang)}</td>
-          <td>${esc(C.GROUP_TO_NCC[it.ma_nhom])}</td><td>${esc(it.chu_ky_thay_the)}</td>
+          <td>${esc(nccOf(it))}</td><td>${esc(it.chu_ky_thay_the)}</td>
           <td>${it.muc_do_hu_hong === 'Dễ hư hỏng' ? '<span class="badge badge-amber">Dễ hư hỏng</span>' : esc(it.muc_do_hu_hong)}</td>
           <td class="act">
             <button class="ibtn ibtn-primary" data-vtview="${esc(it.ma_hang)}" title="Xem">👁️</button>
             <button class="ibtn" data-vtedit="${esc(it.ma_hang)}" title="Sửa">✏️</button>
+            <button class="ibtn ibtn-warn" data-vtcopy="${esc(it.ma_hang)}" title="Tạo bản sao (mã mới)">📑</button>
             <button class="ibtn ibtn-danger" data-vtdel="${esc(it.ma_hang)}" title="Xóa">🗑️</button>
           </td></tr>`).join('')}</tbody></table>`);
 
@@ -2114,6 +2201,24 @@
       $$('[data-vtview]', $('#dmWrap')).forEach(b => b.onclick = () => vatTuView(b.dataset.vtview));
 
       $$('[data-vtedit]', $('#dmWrap')).forEach(b => b.onclick = () => vatTuForm(data.find(x => x.ma_hang === b.dataset.vtedit)));
+
+      // Debug 1: Tạo bản sao -> mở form THÊM với dữ liệu điền sẵn, mã để trống
+
+      $$('[data-vtcopy]', $('#dmWrap')).forEach(b => b.onclick = () => {
+        const src = data.find(x => x.ma_hang === b.dataset.vtcopy);
+        if (!src) return;
+        const copy = { ...src, ma_hang: '', ten_hang_hoa: (src.ten_hang_hoa || '') + ' (bản sao)' };
+        vatTuFormCopy(copy);
+      });
+
+      // Debug 1: Tạo bản sao -> mở form THÊM với dữ liệu điền sẵn, mã để trống
+
+      $$('[data-vtcopy]', $('#dmWrap')).forEach(b => b.onclick = () => {
+        const src = data.find(x => x.ma_hang === b.dataset.vtcopy);
+        if (!src) return;
+        const copy = { ...src, ma_hang: '', ten_hang_hoa: (src.ten_hang_hoa || '') + ' (bản sao)' };
+        vatTuFormCopy(copy);
+      });
 
       $$('[data-vtdel]', $('#dmWrap')).forEach(b => b.onclick = () => vatTuDelete(b.dataset.vtdel));
     };
@@ -2137,7 +2242,7 @@
     const data = AppState.cache.dmData || await window.API.listData();
     const header = ['STT','Mã hàng','Tên hàng hóa','ĐVT','Đơn giá','Giá thị trường','Nhóm','NCC','Mục đích','Mức độ hư hỏng','Chu kỳ thay thế','Phân loại chi phí'];
     const aoa = [header, ...data.map((it, i) => [i+1, it.ma_hang, it.ten_hang_hoa, it.dvt, it.don_gia, it.gia_thi_truong,
-      it.phan_loai_nhom_hang, C.GROUP_TO_NCC[it.ma_nhom], it.muc_dich_su_dung, it.muc_do_hu_hong, it.chu_ky_thay_the, it.phan_loai_chi_phi])];
+      it.phan_loai_nhom_hang, nccOf(it), it.muc_dich_su_dung, it.muc_do_hu_hong, it.chu_ky_thay_the, it.phan_loai_chi_phi])];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = header.map(() => ({ wch: 16 }));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'DanhMuc');
@@ -2151,9 +2256,14 @@
     /* ====================================================================
    *  DANH MỤC VẬT TƯ — THÊM / SỬA / XEM / XÓA
    * ==================================================================== */
-  function vatTuForm(item) {
+  // Debug 1: mở form ở chế độ THÊM nhưng điền sẵn dữ liệu từ vật tư nguồn (bản sao)
+  function vatTuFormCopy(prefill) {
+    vatTuForm(prefill, true);
+  }
+  function vatTuForm(item, isCopy) {
     const e = item || {};
-    const isEdit = !!item;
+    // Khi tạo bản sao: coi như thêm mới (isEdit=false) để cho phép nhập mã mới
+    const isEdit = !!item && !isCopy;
     const huHongOpts = ['Dễ hư hỏng', 'Trung bình', 'Bền'];
     const cpOpts = ['Chi phí vật tư dụng cụ', 'Chi phí máy móc thiết bị', 'Chi phí dịch vụ'];
 
@@ -2286,7 +2396,7 @@
             <tr><td><b>Đơn giá</b></td><td>${fmt(it.don_gia)}</td></tr>
             <tr><td><b>Giá thị trường</b></td><td>${esc(it.gia_thi_truong || '')}</td></tr>
             <tr><td><b>Nhóm hàng</b></td><td>${esc(it.phan_loai_nhom_hang)} (${esc(it.id_nhom)} / ${esc(it.ma_nhom)})</td></tr>
-            <tr><td><b>Nhà cung cấp</b></td><td>${esc(C.GROUP_TO_NCC[it.ma_nhom])}</td></tr>
+            <tr><td><b>Nhà cung cấp</b></td><td>${esc(nccOf(it))}</td></tr>
             <tr><td><b>Mục đích sử dụng</b></td><td>${esc(it.muc_dich_su_dung || '')}</td></tr>
             <tr><td><b>Mức độ hư hỏng</b></td><td>${esc(it.muc_do_hu_hong)}</td></tr>
             <tr><td><b>Chu kỳ thay thế</b></td><td>${esc(it.chu_ky_thay_the)}</td></tr>
@@ -2333,7 +2443,7 @@
         <thead><tr><th>ID nhóm</th><th>Mã nhóm</th><th>Tên nhóm</th>
           <th>NCC phụ trách</th><th>Số vật tư</th><th>Thao tác</th></tr></thead>
         <tbody>${nhoms.map(n => {
-          const ncc = C.GROUP_TO_NCC[n.ma_nhom] || '—';
+          const ncc = (window.DYN_GROUP_TO_NCC && (window.DYN_GROUP_TO_NCC[n.id_nhom] || window.DYN_GROUP_TO_NCC[n.ma_nhom])) || C.GROUP_TO_NCC[n.ma_nhom] || '—';
           return `<tr>
             <td><b>${esc(n.id_nhom)}</b></td>
             <td>${esc(n.ma_nhom)}</td>
@@ -2403,7 +2513,7 @@
     const n = await window.API.getNhom(id);
     if (!n) return toast('Không tìm thấy nhóm', 'error');
     const nccs = await window.API.listNCC();
-    const ncc = C.GROUP_TO_NCC[n.ma_nhom];
+    const ncc = (window.DYN_GROUP_TO_NCC && (window.DYN_GROUP_TO_NCC[n.id_nhom] || window.DYN_GROUP_TO_NCC[n.ma_nhom])) || C.GROUP_TO_NCC[n.ma_nhom];
     const tenNcc = (nccs.find(x => x.id_ncc === ncc) || {}).ten_ncc || ncc;
     const countMap = await window.API.countItemsByNhom();
     openModal({
@@ -2438,7 +2548,6 @@
       ],
     });
   }
-
 
   /* ====================================================================
    *  MÀN HÌNH 7 — NHÀ CUNG CẤP
@@ -2995,8 +3104,8 @@
    * ==================================================================== */
   function nccForm(n) {
     const e = n || {};
-    const nhomOpts = C.DANH_MUC_NHOM
-      .map(g => g.ma_nhom).filter((v, i, a) => a.indexOf(v) === i); // mã nhóm duy nhất
+    // Debug 2: chọn theo id_nhom (NH01..NH12) — tách được cả 4 nhóm con của KHA
+    const nhomOpts = C.DANH_MUC_NHOM; // mỗi nhóm 1 dòng, có id_nhom duy nhất
     openModal({
       title: n ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp',
       body: `
@@ -3004,11 +3113,11 @@
           <label>Mã NCC ${n ? '' : '(tự sinh nếu trống)'}<input id="n_id" value="${esc(e.id_ncc || '')}" ${n ? 'readonly' : ''}></label>
           <label>Tên NCC *<input id="n_ten" value="${esc(e.ten_ncc || '')}"></label>
           <label class="col-2">Nhóm phụ trách (giữ Ctrl để chọn nhiều) *
-            <select id="n_nhom" multiple size="6">${nhomOpts.map(m => `<option value="${m}" ${(e.nhom_phu_trach || []).includes(m) ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+            <select id="n_nhom" multiple size="10">${nhomOpts.map(g => `<option value="${g.id_nhom}" ${(e.nhom_phu_trach || []).includes(g.id_nhom) ? 'selected' : ''}>${esc(g.id_nhom)} · ${esc(g.ten_nhom)} (${esc(g.ma_nhom)})</option>`).join('')}</select></label>
           <label>Điện thoại<input id="n_dt" value="${esc(e.dien_thoai || '')}"></label>
           <label>Địa chỉ<input id="n_dc" value="${esc(e.dia_chi || '')}"></label>
         </div>
-        <div class="alert sm">Lưu ý: thay đổi nhóm phụ trách sẽ ảnh hưởng ánh xạ Nhóm→NCC khi tạo đơn. Mã nhóm KHA dùng chung 4 nhóm con.</div>`,
+        <div class="alert sm">Lưu ý: thay đổi nhóm phụ trách sẽ ảnh hưởng ánh xạ Nhóm→NCC khi tạo đơn. Mã nhóm KHA gồm 4 nhóm con (NH07–NH10) — nay có thể gắn riêng từng nhóm con cho NCC khác nhau.</div>`,
       foot: [
         { label: 'Hủy', class: 'btn-light', onClick: closeModal },
         { label: 'Lưu', class: 'btn-primary', onClick: async () => {
@@ -3032,6 +3141,7 @@
     try {
       await window.API.openDB();
       const seeded = await window.API.seedIfEmpty();
+      await window.API.buildDynGroupMap();   // Debug 2: nạp ánh xạ Nhóm->NCC động khi khởi động
       const ai = await window.API.aiStatus();
       $('#aiStatusPill').textContent = 'TandigitalAI: ' + ai.mode;
       if (seeded) toast('Đã khởi tạo 300 mặt hàng mẫu', 'success');
