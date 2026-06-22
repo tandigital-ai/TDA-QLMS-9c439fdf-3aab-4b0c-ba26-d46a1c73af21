@@ -118,6 +118,77 @@
     b.className = `btn ${cls}`; b.innerHTML = (icon ? icon + ' ' : '') + label; b.onclick = onClick;
     box.appendChild(b); return b;
   }
+
+  
+  /* ====================================================================
+   *  CHỌN HÀNG LOẠT (dùng chung cho mọi tab)
+   *  - selKey: khóa riêng mỗi bảng (vd 'donhang')
+   *  - Gắn sau khi đã render bảng có: th.col-check chứa .chk-all,
+   *    mỗi dòng có td.col-check chứa .chk-row[data-id]
+   * ==================================================================== */
+  const BULK = {};                       // BULK[selKey] = Set các id đang chọn
+  function getSel(key) { return BULK[key] || (BULK[key] = new Set()); }
+  function clearSel(key) { getSel(key).clear(); }
+
+  // Gắn sự kiện cho checkbox + cập nhật thanh thao tác hàng loạt.
+  // actions: [{ label, class, run(idsArray) }]
+  function setupBulk(selKey, scopeEl, barId, actions) {
+    const sel = getSel(selKey);
+    const bar = document.getElementById(barId);
+    const rowChks = $$('.chk-row', scopeEl);
+    const allChk = $('.chk-all', scopeEl);
+
+    const refresh = () => {
+      rowChks.forEach(c => {
+        c.checked = sel.has(c.dataset.id);
+        c.closest('tr')?.classList.toggle('row-checked', c.checked);
+      });
+      if (allChk) allChk.checked = rowChks.length > 0 && rowChks.every(c => sel.has(c.dataset.id));
+      if (bar) {
+        const n = sel.size;
+        bar.classList.toggle('hidden', n === 0);
+        const cnt = bar.querySelector('.bulk-count'); if (cnt) cnt.textContent = `Đã chọn ${n} mục`;
+      }
+    };
+
+    rowChks.forEach(c => c.onclick = () => {
+      if (c.checked) sel.add(c.dataset.id); else sel.delete(c.dataset.id);
+      refresh();
+    });
+    if (allChk) allChk.onclick = () => {
+      if (allChk.checked) rowChks.forEach(c => sel.add(c.dataset.id));
+      else rowChks.forEach(c => sel.delete(c.dataset.id));
+      refresh();
+    };
+
+    if (bar) {
+      const actBox = bar.querySelector('.bulk-actions');
+      if (actBox) {
+        actBox.innerHTML = '';
+        (actions || []).forEach(a => {
+          const btn = document.createElement('button');
+          btn.className = `btn btn-sm ${a.class || 'btn-light'}`;
+          btn.textContent = a.label;
+          btn.onclick = () => a.run([...sel]);
+          actBox.appendChild(btn);
+        });
+      }
+      const btnClear = bar.querySelector('.bulk-clear');
+      if (btnClear) btnClear.onclick = () => { sel.clear(); refresh(); };
+    }
+    refresh();
+  }
+
+  // HTML thanh thao tác hàng loạt (đặt phía trên bảng)
+  function bulkBarHtml(barId) {
+    return `<div class="bulk-bar hidden" id="${barId}">
+      <span class="bulk-count">Đã chọn 0 mục</span>
+      <div class="bulk-actions"></div>
+      <span class="spacer"></span>
+      <button class="btn btn-sm btn-light bulk-clear">Bỏ chọn</button>
+    </div>`;
+  }
+
   function emptyBox(msg) { return `<div class="empty">${esc(msg)}</div>`; }
   function card(html, cls = '') { return `<div class="card ${cls}">${html}</div>`; }
     /* -------------------- PHÂN TRANG DÙNG CHUNG -------------------- */
@@ -752,8 +823,10 @@
         <input id="dhSearch" placeholder="🔍 Tìm mã đơn / NCC…">
         <button class="btn btn-light" id="dhClear">↺ Xóa lọc</button>
       </div>
+      ${bulkBarHtml('dhBulkBar')}
       <div id="dhTableWrap"></div>
       <div id="dhPager"></div>`;
+    clearSel('donhang');
 
     const dhMonth = (d) => { const m = /PO-(\d{4})(\d{2})-/.exec(d.ma_don_hang); return m ? `${m[1]}-${m[2]}` : (d.ngay_tao||'').slice(0,7); };
     const draw = () => {
@@ -774,6 +847,7 @@
 
       $('#dhTableWrap').innerHTML = card(pageRows.length ? `
         <table class="tbl"><thead><tr>
+          <th class="col-check"><input type="checkbox" class="chk-all"></th>
           <th>Mã đơn</th><th>Công trình</th><th>NCC</th><th>Giá trị</th>
           <th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead>
         <tbody>${pageRows.map(d => {
@@ -782,6 +856,7 @@
           const ctId = d.id_cong_trinh || (kh ? kh.id_cong_trinh : null);
           const ct = ctId ? ctMap[ctId] : null;
           return `<tr>
+            <td class="col-check"><input type="checkbox" class="chk-row" data-id="${d.id_don_hang}"></td>
             <td><b>${esc(d.ma_don_hang)}</b></td>
             <td>${esc(ct ? ct.ten_cong_trinh : '—')}</td>
             <td>${esc(d.id_ncc)}</td>
@@ -822,6 +897,11 @@
       $$('[data-xls]', view()).forEach(b => b.onclick = () => exportPoExcel(b.dataset.xls));
 
       $$('[data-del]', view()).forEach(b => b.onclick = () => confirmDelPO(b.dataset.del));
+
+      // ===== Chọn & xóa hàng loạt (theo bộ lọc hiện tại) =====
+      setupBulk('donhang', view(), 'dhBulkBar', [
+        { label: '🗑️ Xóa hàng loạt', class: 'btn-danger', run: (ids) => bulkDeletePO(ids, draw) },
+      ]);
     };
     $('#dhFilter').onchange = () => { getPage('donhang').page = 1; draw(); };
     $('#dhSearch').oninput = () => { getPage('donhang').page = 1; draw(); };
@@ -1604,6 +1684,29 @@
     c = list.find(x => (x.ma_cong_trinh || '').toLowerCase() === low || (x.ten_cong_trinh || '').toLowerCase() === low);
     if (c) return c;
     return list.find(x => (x.ten_cong_trinh || '').toLowerCase().includes(low)) || null;
+  }
+
+    // Xóa hàng loạt đơn hàng đã tick chọn (bỏ qua đơn bị ràng buộc cứng, báo cáo kết quả)
+  function bulkDeletePO(ids, after) {
+    if (!ids.length) return toast('Chưa chọn đơn nào', 'info');
+    openModal({
+      title: 'Xác nhận xóa hàng loạt',
+      body: `<p>Xóa <b>${ids.length}</b> đơn hàng đã chọn? Các đơn ở trạng thái không cho phép xóa sẽ được bỏ qua.</p>`,
+      foot: [
+        { label: 'Hủy', class: 'btn-light', onClick: closeModal },
+        { label: `Xóa ${ids.length} đơn`, class: 'btn-danger', onClick: async () => {
+          let ok = 0, skip = 0;
+          for (const id of ids) {
+            try { await window.API.deleteDonHang(id); ok++; }
+            catch (e) { skip++; }
+          }
+          clearSel('donhang');
+          closeModal();
+          toast(`Đã xóa ${ok} đơn` + (skip ? `, bỏ qua ${skip} đơn (ràng buộc trạng thái)` : ''), skip ? 'info' : 'success', 5000);
+          renderDonHang();
+        } },
+      ],
+    });
   }
 
   function confirmDelPO(id) {
