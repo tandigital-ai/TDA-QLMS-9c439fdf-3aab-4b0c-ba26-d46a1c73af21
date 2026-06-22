@@ -318,6 +318,7 @@
    *  MÀN HÌNH 2 — CÔNG TRÌNH
    * ==================================================================== */
   async function renderCongTrinh() {
+    clearToolbar();
     toolbarBtn('Thêm công trình', 'btn-primary', () => congTrinhForm(), '➕');
     const cts = await window.API.listCongTrinh();
     if (!cts.length) { view().innerHTML = emptyBox('Chưa có công trình. Nhấn "Thêm công trình" để tạo mới.'); return; }
@@ -399,6 +400,7 @@
    *  MÀN HÌNH 3 — KẾ HOẠCH MUA SẮM
    * ==================================================================== */
   async function renderKeHoach() {
+    clearToolbar();
     toolbarBtn('Lập kế hoạch mới', 'btn-primary', () => keHoachForm(), '➕'),
     toolbarBtn('⚡ Tạo đơn hàng loạt', 'btn-warn', () => openAutoGenerate());
     const [khs, cts] = await Promise.all([window.API.listKeHoach(), window.API.listCongTrinh()]);
@@ -791,6 +793,7 @@
    *  MÀN HÌNH 4 — ĐƠN ĐẶT HÀNG (vòng đời PO)
    * ==================================================================== */
   async function renderDonHang() {
+    clearToolbar();
     toolbarBtn('➕ Thêm đơn hàng', 'btn-primary', () => openPoCreator());
     toolbarBtn('📊 Xuất Excel theo kỳ', 'btn-light', () => openExportPeriod());
     toolbarBtn('🧾 Phiếu thu (xlsx)', 'btn-light', () => openExportPhieu('thu'));
@@ -2276,6 +2279,7 @@
    *  MÀN HÌNH 6 — DANH MỤC VẬT TƯ
    * ==================================================================== */
   async function renderDanhMuc() {
+    clearToolbar();
     toolbarBtn('➕ Thêm vật tư', 'btn-primary', () => vatTuForm());
     toolbarBtn('Xuất Excel danh mục', 'btn-light', exportDataExcel, '📊');
     const [data, nhoms] = await Promise.all([window.API.listData(), window.API.listNhom()]);
@@ -2544,6 +2548,7 @@
    *  MÀN HÌNH — NHÓM PHỤ TRÁCH (CRUD nhóm hàng, liên kết NCC & DATA)
    * ==================================================================== */
   async function renderNhom() {
+    clearToolbar();
     toolbarBtn('➕ Thêm nhóm', 'btn-primary', () => nhomForm());
     const [nhoms, nccs, countMap] = await Promise.all([
       window.API.listNhom(), window.API.listNCC(), window.API.countItemsByNhom(),
@@ -2666,6 +2671,7 @@
    *  MÀN HÌNH 7 — NHÀ CUNG CẤP
    * ==================================================================== */
   async function renderNCC() {
+    clearToolbar();
     toolbarBtn('Thêm nhà cung cấp', 'btn-primary', () => nccForm(), '➕');
     const [nccs, dhs] = await Promise.all([window.API.listNCC(), window.API.listDonHang()]);
     const active = dhs.filter(d => d.trang_thai !== C.PO_STATUS.DA_HUY);
@@ -2706,6 +2712,7 @@
    *  MÀN HÌNH 8 — BÁO CÁO (Excel nhiều sheet)
    * ==================================================================== */
   async function renderBaoCao() {
+    clearToolbar();
     toolbarBtn('Xuất báo cáo Excel', 'btn-primary', exportFullReport, '📊');
     const [dhs, khs, cts, nccs] = await Promise.all([
       window.API.listDonHang(), window.API.listKeHoach(), window.API.listCongTrinh(), window.API.listNCC(),
