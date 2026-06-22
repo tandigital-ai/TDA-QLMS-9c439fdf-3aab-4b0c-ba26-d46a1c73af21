@@ -88,7 +88,7 @@
 
     $$('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === route));
     $('#pageTitle').textContent = ROUTES[route].title;
-    $('#topbarActions').innerHTML = '';
+    clearToolbar();
     view().innerHTML = '<div class="loading">Đang tải…</div>';
     try { await ROUTES[route].render(); }
     catch (e) { view().innerHTML = `<div class="empty">Lỗi: ${esc(e.message)}</div>`; console.error(e); }
@@ -103,10 +103,20 @@
   $('#btnToggleSidebar').onclick = () => $('#sidebar').classList.toggle('open');
 
   /* -------------------- TIỆN ÍCH UI -------------------- */
+  // Đếm số lần render để mỗi "lượt render" chỉ dọn toolbar đúng 1 lần.
+  // Nhờ đó dù render lại trong cùng tab (lưu/xóa/import...) nút cũng KHÔNG bị nhân lên.
+  let _toolbarToken = 0;
+  function clearToolbar() { const t = $('#topbarActions'); if (t) t.innerHTML = ''; _toolbarToken++; }
   function toolbarBtn(label, cls, onClick, icon) {
+    const box = $('#topbarActions');
+    // Nút đầu tiên của lượt render hiện tại -> tự dọn sạch nút cũ trước khi thêm
+    if (box && box.dataset.token !== String(_toolbarToken)) {
+      box.innerHTML = '';
+      box.dataset.token = String(_toolbarToken);
+    }
     const b = document.createElement('button');
     b.className = `btn ${cls}`; b.innerHTML = (icon ? icon + ' ' : '') + label; b.onclick = onClick;
-    $('#topbarActions').appendChild(b); return b;
+    box.appendChild(b); return b;
   }
   function emptyBox(msg) { return `<div class="empty">${esc(msg)}</div>`; }
   function card(html, cls = '') { return `<div class="card ${cls}">${html}</div>`; }
