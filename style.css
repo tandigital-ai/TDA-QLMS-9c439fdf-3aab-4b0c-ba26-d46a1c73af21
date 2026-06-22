@@ -475,3 +475,14 @@ input[type="range"] { padding: 0; }
   .modal.modal-xwide .po-card { overflow-x: auto; }       /* thẻ cho phép kéo ngang */
   .modal.modal-xwide .po-edit-tbl { min-width: 540px; }   /* giữ đủ rộng cho 7 cột */
 }
+
+/* ===== Chọn hàng loạt (bulk select) ===== */
+.bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; margin-bottom: 10px; background: #eef2ff;
+  border: 1px solid #c7d2fe; border-radius: 8px; }
+.bulk-bar.hidden { display: none; }
+.bulk-bar .bulk-count { font-weight: 700; color: #3730a3; }
+.bulk-bar .spacer { flex: 1; }
+td.col-check, th.col-check { width: 38px; text-align: center; }
+.chk-row, .chk-all { width: 16px; height: 16px; cursor: pointer; }
+tr.row-checked { background: #eef2ff; }
