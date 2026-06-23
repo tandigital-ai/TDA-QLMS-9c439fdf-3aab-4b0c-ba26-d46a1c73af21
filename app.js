@@ -1964,8 +1964,9 @@
     const po = await window.API.getDonHang(id);
     const cts = await window.API.listChiTietByDon(id);
     const ncc = (await window.API.listNCC()).find(n => n.id_ncc === po.id_ncc) || {};
-    const kh = po.id_ke_hoach ? await window.API.getKeHoach(po.id_ke_hoacsh) : null;
+    const kh = po.id_ke_hoach ? await window.API.getKeHoach(po.id_ke_hoach) : null;
     const ct = kh ? await window.API.getCongTrinh(kh.id_cong_trinh) : null;
+
 
     $('#printArea').innerHTML = `
       <div class="print-doc">
